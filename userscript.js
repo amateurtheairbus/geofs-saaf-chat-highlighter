@@ -1,161 +1,138 @@
 // ==UserScript==
-// @name         SAAF red orbats
-// @namespace    https://geo-fs.com/
-// @version      5.0
-// @description  Makes runway icons for SAAF ORBATS bases red
-// @author       Squirtle7479(original USAF), Amateur380(SAAF edition)
-// @match        https://www.geo-fs.com/geofs.php*
-// @match        https://geo-fs.com/geofs.php*
+// @name         text highlihgter
+// @version      3
+// @description  Show ACIDs, aircraft names with categories (only for classified aircraft), server time in chat + Enhanced multiplayer labels
+// @match        https://www.geo-fs.com/geofs.php?v=*
 // @grant        none
-// @run-at       document-idle
+// @author       d-1
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=geo-fs.com
 // ==/UserScript==
 
 (function () {
-  'use strict';
+  function init() {
+    const style = document.createElement("style");
+    style.textContent = `
+            .my-friend {
+                color: #ff00bbff;
+                font-weight: bolder !important;
+            }
+            .my-red {
+                color: #ffcc22ff;
+                font-weight: bolder !important;
+            }
+            .my-bar {
+                position: relative;
+                color: #fff;
+                margin: 1px;
+                text-shadow: 0px 0px 3px #000;
+            }
+            .geofs-servertime {
+                color: #ffb006ff;
+                font-size: 85%;
+                margin-right: 6px;
+                font-family: "Helvetica", sans-serif;
+            }
+            .geofs-chat-message {
+                color: #ffffff;
+            }
+        `;
+    document.head.appendChild(style);
 
-  // ══════════════════════════════════════════════════════════════════
-  //  SOUTH AFRICAN MILITARY AIRFIELDS
-  // ══════════════════════════════════════════════════════════════════
-  const RED_AIRPORTS = new Set([
-    // SOUTH AFRICA
-    "FABL","FADN","FAHS","FAKM","FALW","FALM","FAOB","FAPE","FASK","FAWK","FAYP",
-    // NAMIBIA
-    "FYGF","FYWE",
-    // LESOTHO
-    "FXMU",
-    // SENEGAL
-    "GOOY","GOOK",
-    // GUINEA-BISSAU
-    "GGOV",
-    // LIBERIA
-    "GLMR",
-    // BURKINA FASO
-    "DFOO","DFEF",
-    //IVORY COAST
-    "DIAP","DIBK","DIKO",
-    //NIGERIA
-    "DNAA","DNBE","DNCA","DNEN","DNIL","DN53","DNKN","DNMM","DNMA","DNMK","DNMN","NG-0004","DNYO",
-    //THE GAMBIA 
-    "GBYD",
-    //GUINEA
-    "GUCY",
-    //GHANA
-    "DGAA","DGTK","DGLE",
-    //TOGO
-    "DXXX","DXNG",
-    //DJIBOUTI
-    "HDAM",
-    //ZAMBIA
-    "FLLI",
-    //ZIMBABWE
-    "FVTL","FVHA",
-    //BOTSWANA
-    "FBFT","FBTP","FBSK"
-  ]);
+    const hiddenStyle = document.createElement("style");
+    hiddenStyle.textContent = `
+            .geofs-servertime {
+                display: none;
+            }
+            .my-friend {
+                color: white !important;
+                font-weight: bolder !important;
+            }
+            .my-red {
+                color: white !important;
+                font-weight: bolder !important;
+            }
+            .my-bar {
+                display: none !important;
+            }
+        `;
 
-  const RED_FILL   = "#e03030";
-  const RED_STROKE = "#8b0000";
+    var isAdded = false;
 
-  // ══════════════════════════════════════════════════════════════════
-  //  RECOLOR EXISTING MARKERS
-  //  Walks geofs.api.map.markerLayers.major and .minor, which hold
-  //  all currently rendered runway markers. Each entry has
-  //  layer.options.runway.icao — confirmed from diagnostics.
-  // ══════════════════════════════════════════════════════════════════
+    function getServerTimeStr() {
+      try {
+        if (multiplayer && "function" == typeof multiplayer.getServerTime) {
+          return new Date(multiplayer.getServerTime())
+            .toUTCString()
+            .split(" ")[4];
+        }
+      } catch (e) {}
+      return "N/A";
+    }
 
-  function recolorExisting() {
-    const markerLayers = geofs.api.map.markerLayers;
-    for (const tier of ['major', 'minor']) {
-      const group = markerLayers[tier];
-      if (!group) continue;
-      // The group is a Leaflet layer group — iterate its layers
-      const layers = group._layers || group.getLayers && group.getLayers() || {};
-      const arr = Array.isArray(layers) ? layers : Object.values(layers);
-      for (const layer of arr) {
-        try {
-          const icao = layer.options && layer.options.runway && layer.options.runway.icao;
-          if (icao && RED_AIRPORTS.has(icao)) {
-            layer.setStyle({ fillColor: RED_FILL, color: RED_STROKE });
-          }
-        } catch (e) { /* ignore */ }
+    function checkIfUSAF(callsign) {
+      callsign = callsign.toLowerCase();
+      return callsign.includes("[usaf]") || callsign.includes("[usaf-t]");
+    }
+
+    function checkIfMRP(callsign) {
+      callsign = callsign.toLowerCase();
+
+      if (!checkIfUSAF(callsign)) {
+        if (callsign.includes("[utp]") || callsign.includes("[u]")) return true;
+        if (callsign.includes("[pmc]") || callsign.includes("[p]")) return true;
+        if (/\[.*\]\[/i.test(callsign)) return true;
       }
     }
-  }
 
-  // ══════════════════════════════════════════════════════════════════
-  //  PATCH addRunwayMarker
-  //  Intercepts every future marker at creation time and swaps the
-  //  fillColor before it reaches geofs.api.map.addLayeredMarker.
-  //  The runway object `e` has e.icao confirmed from diagnostics.
-  // ══════════════════════════════════════════════════════════════════
+    ui.chat.publish = function (e) {
+      if (!geofs.preferences.chat) return;
 
-  function patchAddRunwayMarker() {
-    const orig = geofs.map.addRunwayMarker;
-    geofs.map.addRunwayMarker = function (e) {
-      if (e && e.icao && RED_AIRPORTS.has(e.icao)) {
-        // Clone to avoid mutating the original runway data
-        e = Object.assign({}, e, { _redOverride: true });
-        // Wrap addLayeredMarker temporarily to swap the color
-        const origALM = geofs.api.map.addLayeredMarker;
-        geofs.api.map.addLayeredMarker = function (type, options) {
-          if (options && options.runway && options.runway._redOverride) {
-            options = Object.assign({}, options, {
-              fillColor: RED_FILL,
-              color:     RED_STROKE,
-            });
-          }
-          geofs.api.map.addLayeredMarker = origALM; // restore immediately
-          return origALM.call(this, type, options);
-        };
+      const msg = decodeURIComponent(e.msg);
+      ui.chat.$container = ui.chat.$container || $(".geofs-chat-messages");
+
+      let labelClass = "";
+      let formattedCallsign = "";
+      const serverTime = getServerTimeStr();
+
+      if (e.acid == geofs.userRecord.id) {
+        labelClass = "myself";
+        formattedCallsign = e.cs;
+      } else {
+        formattedCallsign = `${e.acid} | ${e.cs}`;
       }
-      return orig.call(this, e);
+
+      ui.chat.$container.prepend(`
+                <div class="geofs-chat-message ${e.rs}">
+                    <span class="geofs-servertime">${serverTime}</span>
+                    <b class="label ${labelClass} ${checkIfMRP(e.cs) && labelClass != "myself" ? "my-red" : checkIfUSAF(e.cs) ? "my-friend" : ""}"
+                       data-player="${e.uid}" acid="${e.acid}" callsign="${e.cs}">
+                        ${formattedCallsign}:
+                    </b> ${msg}
+                </div>
+            `);
+
+      ui.chat.$container
+        .find(".geofs-chat-message")
+        .each(function (i, el) {
+          $(el).css(
+            "opacity",
+            (ui.chat.maxNumberMessages - i) / ui.chat.maxNumberMessages,
+          );
+        })
+        .eq(ui.chat.maxNumberMessages)
+        .remove();
     };
-    console.log('[RedRunway] addRunwayMarker patched.');
+
+    function toggle() {
+      isAdded = isAdded
+        ? (hiddenStyle.remove(), false)
+        : (document.head.appendChild(hiddenStyle), true);
+    }
+
+    document.addEventListener("keydown", (e) => {
+      e.key.toLowerCase() === "u" && toggle();
+    });
   }
 
-  // ══════════════════════════════════════════════════════════════════
-  //  BOOT — wait for geofs.map and geofs.api.map to be ready
-  // ══════════════════════════════════════════════════════════════════
-
-  function tryBoot() {
-    if (!window.geofs || !geofs.map || !geofs.api || !geofs.api.map) return false;
-    if (!geofs.map.addRunwayMarker || !geofs.api.map.markerLayers) return false;
-    return true;
-  }
-
-  const bootInterval = setInterval(() => {
-    if (!tryBoot()) return;
-    clearInterval(bootInterval);
-
-    patchAddRunwayMarker();
-
-    // Recolor anything already on the map, then keep sweeping since
-    // GeoFS loads markers lazily as you pan.
-    recolorExisting();
-    setInterval(recolorExisting, 2000);
-
-    console.log('[RedRunway] v4.0 active. ' + RED_AIRPORTS.size + ' military/gov airfields flagged.');
-    console.log('[RedRunway] API: window.__redRunwayAddon.add("ICAO") / .remove() / .list()');
-  }, 500);
-
-  // ══════════════════════════════════════════════════════════════════
-  //  PUBLIC API
-  // ══════════════════════════════════════════════════════════════════
-
-  window.__redRunwayAddon = {
-    add(icao) {
-      [].concat(icao).forEach(c => RED_AIRPORTS.add(c.toUpperCase()));
-      recolorExisting();
-      console.log('[RedRunway] Added:', [].concat(icao).join(', '));
-    },
-    remove(icao) {
-      [].concat(icao).forEach(c => RED_AIRPORTS.delete(c.toUpperCase()));
-      console.log('[RedRunway] Removed (pan map to restore blue):', [].concat(icao).join(', '));
-    },
-    list() {
-      console.log('[RedRunway]', RED_AIRPORTS.size, 'airports:', [...RED_AIRPORTS].sort().join(', '));
-    },
-  };
-
-  console.log('[RedRunway] v4.0 loaded, waiting for GeoFS...');
+  window.executeOnEventDone("geofsInitialized", init);
 })();
