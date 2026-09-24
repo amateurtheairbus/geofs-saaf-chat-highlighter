@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         text highlihgter
+// @name         SAAF Text Highlighter
 // @version      3
 // @description  Show ACIDs, aircraft names with categories (only for classified aircraft), server time in chat + Enhanced multiplayer labels
 // @match        https://www.geo-fs.com/geofs.php?v=*
 // @grant        none
-// @author       d-1
+// @author       original d-1, SAAF version amateurtheairbus
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=geo-fs.com
 // ==/UserScript==
 
@@ -69,15 +69,15 @@
       return "N/A";
     }
 
-    function checkIfUSAF(callsign) {
+    function checkIfSAAF(callsign) {
       callsign = callsign.toLowerCase();
-      return callsign.includes("[usaf]") || callsign.includes("[usaf-t]");
+      return callsign.includes("[saaf]") || callsign.includes("[saaf-t]");
     }
 
     function checkIfMRP(callsign) {
       callsign = callsign.toLowerCase();
 
-      if (!checkIfUSAF(callsign)) {
+      if (!checkIfSAAF(callsign)) {
         if (callsign.includes("[utp]") || callsign.includes("[u]")) return true;
         if (callsign.includes("[pmc]") || callsign.includes("[p]")) return true;
         if (/\[.*\]\[/i.test(callsign)) return true;
@@ -104,7 +104,7 @@
       ui.chat.$container.prepend(`
                 <div class="geofs-chat-message ${e.rs}">
                     <span class="geofs-servertime">${serverTime}</span>
-                    <b class="label ${labelClass} ${checkIfMRP(e.cs) && labelClass != "myself" ? "my-red" : checkIfUSAF(e.cs) ? "my-friend" : ""}"
+                    <b class="label ${labelClass} ${checkIfMRP(e.cs) && labelClass != "myself" ? "my-red" : checkIfSAAF(e.cs) ? "my-friend" : ""}"
                        data-player="${e.uid}" acid="${e.acid}" callsign="${e.cs}">
                         ${formattedCallsign}:
                     </b> ${msg}
